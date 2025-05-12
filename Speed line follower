@@ -1,0 +1,131 @@
+#include <QTRSensors.h>
+
+// Pin tanımlamaları
+#define NUM_SENSORS 8
+#define OBJECT_SENSOR_PIN A0
+#define MOTOR_A_PWM 3
+#define MOTOR_A_DIR 13
+#define MOTOR_B_PWM 11
+#define MOTOR_B_DIR 12
+
+// QTR sensör pinleri (dijital)
+unsigned char qtrPins[NUM_SENSORS] = {2, 3, 4, 5, 6, 7, 8, 9};
+
+// PID ayarları
+#define KP 0.2
+#define KD 1.0
+#define KI 0.001
+#define MAX_SPEED 200
+
+// Dijital QTR sensör nesnesi
+QTRSensors qtr;
+unsigned int sensorValues[NUM_SENSORS];
+
+// PID değişkenleri
+int lastError = 0;
+int integral = 0;
+bool started = false;
+
+void setup() {
+  // Motor pinleri
+  pinMode(MOTOR_A_PWM, OUTPUT);
+  pinMode(MOTOR_A_DIR, OUTPUT);
+  pinMode(MOTOR_B_PWM, OUTPUT);
+  pinMode(MOTOR_B_DIR, OUTPUT);
+  
+  // Cisim sensörü
+  pinMode(OBJECT_SENSOR_PIN, INPUT);
+  
+  // QTR dijital sensör ayarları
+  qtr.setSensorPins(qtrPins, NUM_SENSORS);
+  qtr.setEmitterPin(10); // Emitter pini (eğer kullanıyorsanız)
+  
+  // Kalibrasyon
+  Serial.begin(9600);
+  delay(500);
+  
+  // Sensörleri siyah ve beyaz üzerinde gezdirin
+  for (int i = 0; i < 200; i++) {
+    qtr.calibrate();
+    delay(10);
+  }
+  
+  Serial.println("Kalibrasyon tamamlandi");
+  delay(1000);
+}
+
+void loop() {
+  // Başlama kontrolü
+  if (!started) {
+    if (analogRead(OBJECT_SENSOR_PIN) > 500) {
+      started = true;
+      delay(500);
+    } else {
+      setMotorSpeed(0, 0);
+      return;
+    }
+  }
+  
+  // Dijital sensörlerden okuma (GÜNCELLENMİŞ)
+  qtr.read(sensorValues);
+  
+  // Pozisyon hesaplama (manuel olarak)
+  int position = calculateLinePosition(sensorValues);
+  
+  // PID hesabı
+  int error = position - 3500;
+  integral += error;
+  int derivative = error - lastError;
+  int motorSpeed = KP * error + KI * integral + KD * derivative;
+  lastError = error;
+  
+  // Motor hızları
+  int leftSpeed = MAX_SPEED - motorSpeed;
+  int rightSpeed = MAX_SPEED + motorSpeed;
+  
+  leftSpeed = constrain(leftSpeed, -MAX_SPEED, MAX_SPEED);
+  rightSpeed = constrain(rightSpeed, -MAX_SPEED, MAX_SPEED);
+  
+  setMotorSpeed(leftSpeed, rightSpeed);
+}
+
+int calculateLinePosition(unsigned int* sensorValues) {
+  // Sensör değerlerine göre pozisyon hesapla
+  // Bu kısmı sensörlerinizin davranışına göre ayarlamalısınız
+  int position = 0;
+  int sum = 0;
+  int weightedSum = 0;
+  
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    weightedSum += (int)sensorValues[i] * (i * 1000);
+    sum += sensorValues[i];
+  }
+  
+  if (sum > 0) {
+    position = weightedSum / sum;
+  } else {
+    position = 3500; // Merkez değeri
+  }
+  
+  return position;
+}
+
+void setMotorSpeed(int leftSpeed, int rightSpeed) {
+  // Motor A kontrolü
+  if (leftSpeed >= 0) {
+    digitalWrite(MOTOR_A_DIR, HIGH);
+    analogWrite(MOTOR_A_PWM, leftSpeed);
+  } else {
+    digitalWrite(MOTOR_A_DIR, LOW);
+    analogWrite(MOTOR_A_PWM, -leftSpeed);
+  }
+  
+  // Motor B kontrolü
+  if (rightSpeed >= 0) {
+    digitalWrite(MOTOR_B_DIR, HIGH);
+    analogWrite(MOTOR_B_PWM, rightSpeed);
+  } else {
+    digitalWrite(MOTOR_B_DIR, LOW);
+    analogWrite(MOTOR_B_PWM, -rightSpeed);
+  }
+}
